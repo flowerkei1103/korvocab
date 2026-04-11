@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>韓文單字 Flashcard</title>
+
+<style>
+body{background:#f4efe8;font-family:-apple-system;padding:20px;}
+h1{text-align:center;}
+
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:20px 0;}
+button{background:#a79bb5;color:white;border:none;padding:10px;border-radius:10px;}
+
+.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:15px;}
+@media(max-width:800px){.cards{grid-template-columns:1fr;}}
+
+.card{background:white;padding:20px;border-radius:12px;text-align:center;cursor:pointer;}
+.card .back{display:none;}
+.card.flip .front{display:none;}
+.card.flip .back{display:block;}
+
+.option{border:1px solid #ccc;padding:10px;margin:6px auto;width:200px;border-radius:10px;}
+.correct{background:#bfe6bf;}
+.wrong{background:#f3b3b3;}
+
+#addBox,#manageBox{display:none;text-align:center;}
+input,textarea,select{width:260px;margin:6px;padding:6px;}
+
+.manage-item{background:white;margin:6px auto;padding:10px;width:260px;border-radius:10px;display:flex;justify-content:space-between;}
+</style>
+</head>
+
+<body>
+
+<h1>韓文單字 Flashcard</h1>
+
+<div class="controls">
+<button onclick="newCards()">今日新題</button>
+<button onclick="startQuiz()">測驗模式</button>
+<button onclick="exportData()">匯出</button>
+<button onclick="importData()">匯入</button>
+<button onclick="showAdd()">加入單字</button>
+<button onclick="showManage()">管理模式</button>
+<input type="file" id="file" style="display:none" onchange="handleImport(event)">
+</div>
+
+<div id="cardArea" class="cards"></div>
+<div id="quizArea"></div>
+
+<!-- 加入 -->
+<div id="addBox">
+<h3>加入單字</h3>
+<input id="w" placeholder="單字"><br>
+<input id="m" placeholder="中文意思"><br>
+<textarea id="e" placeholder="例句（可不填）"></textarea><br>
+
+<select id="type">
+<option value="">選擇類型</option>
+<option value="noun">名詞</option>
+<option value="verb">動詞 / 形容詞</option>
+</select><br>
+
+<button onclick="addWord()">加入</button>
+</div>
+
+<!-- 管理 -->
+<div id="manageBox">
+<h3>管理單字</h3>
+<button onclick="showList('noun')">名詞</button>
+<button onclick="showList('verb')">動詞 / 形容詞</button>
+<div id="listArea"></div>
+</div>
+
+<script>
+
+let user = JSON.parse(localStorage.getItem('words')||'[]');
+let wrong = JSON.parse(localStorage.getItem('wrongWords')||'[]');
+
+let todayKey = "today-"+new Date().toISOString().slice(0,10);
+let todayDone = JSON.parse(localStorage.getItem(todayKey)||'[]');
+
+let current = [];
+let openedCard = null;
+
+// UI控制
+function hideAll(){
+  cardArea.style.display='none';
+  addBox.style.display='none';
+  manageBox.style.display='none';
+  quizArea.innerHTML='';
+}
+
+// 題庫
+function pool(type){
+  return user.filter(x=>x.type===type);
+}
+
+// 今日新題
+function newCards(){
+  hideAll();
+  cardArea.style.display='grid';
+
+  let nouns = pool('noun').filter(w=>!todayDone.includes(w.word));
+  let verbs = pool('verb').filter(w=>!todayDone.includes(w.word));
+
+  // 錯題優先
+  nouns.sort(w=>wrong.includes(w.word)?-1:1);
+  verbs.sort(w=>wrong.includes(w.word)?-1:1);
+
+  nouns = nouns.sort(()=>Math.random()-0.5).slice(0,5);
+  verbs = verbs.sort(()=>Math.random()-0.5).slice(0,5);
+
+  current = [...nouns,...verbs];
+  render();
+}
+
+// 卡片
+function render(){
+  cardArea.innerHTML='';
+
+  current.forEach(w=>{
+    let d=document.createElement('div');
+    d.className='card';
+
+    let example = w.example ? "<br>"+w.example : "";
+
+    d.innerHTML=`
+      <div class="front">
+        <small>${w.type==='noun'?'📘 名詞':'📗 動詞/形容詞'}</small>
+        <b>${w.word}</b>
+      </div>
+      <div class="back">
+        <small>${w.type==='noun'?'📘 名詞':'📗 動詞/形容詞'}</small>
+        ${w.meaning}${example}
+      </div>
+    `;
+
+    d.onclick=()=>{
+      // ⭐ 只允許翻一張
+      if(openedCard && openedCard!==d){
+        openedCard.classList.remove('flip');
+      }
+
+      d.classList.toggle('flip');
+      openedCard = d.classList.contains('flip') ? d : null;
+    };
+
+    cardArea.appendChild(d);
+  });
+}
+
+// 測驗
+function startQuiz(){
+  if(current.length===0)newCards();
+
+  hideAll();
+
+  let i=0;
+
+  function ask(){
+    if(i>=current.length){
+      quizArea.innerHTML='完成';
+
+      // 記錄今日已學
+      current.forEach(w=>{
+        if(!todayDone.includes(w.word)){
+          todayDone.push(w.word);
+        }
+      });
+
+      localStorage.setItem(todayKey,JSON.stringify(todayDone));
+      return;
+    }
+
+    let q=current[i];
+
+    let options=user
+      .filter(x=>x.word!==q.word)
+      .sort(()=>Math.random()-0.5)
+      .slice(0,3);
+
+    options=[q,...options].sort(()=>Math.random()-0.5);
+
+    quizArea.innerHTML=`<h3>${q.meaning}</h3>`;
+
+    options.forEach(o=>{
+      let b=document.createElement('div');
+      b.className='option';
+      b.textContent=o.word;
+
+      b.onclick=()=>{
+        if(o.word===q.word){
+          b.classList.add('correct');
+          wrong = wrong.filter(x=>x!==q.word);
+        }else{
+          b.classList.add('wrong');
+          if(!wrong.includes(q.word)) wrong.push(q.word);
+        }
+
+        localStorage.setItem('wrongWords',JSON.stringify(wrong));
+
+        setTimeout(()=>{ i++; ask(); },600);
+      };
+
+      quizArea.appendChild(b);
+    });
+  }
+
+  ask();
+}
+
+// 加入
+function showAdd(){ hideAll(); addBox.style.display='block'; }
+
+function addWord(){
+  let w=document.getElementById('w').value.trim();
+  let m=document.getElementById('m').value.trim();
+  let e=document.getElementById('e').value.trim();
+  let t=document.getElementById('type').value;
+
+  if(!w||!m){ alert('請填寫單字與意思'); return; }
+  if(t!=='noun'&&t!=='verb'){ alert('請選分類'); return; }
+  if(user.some(x=>x.word===w)){ alert('已存在'); return; }
+
+  user.push({word:w,meaning:m,example:e,type:t});
+  localStorage.setItem('words',JSON.stringify(user));
+
+  alert('已加入');
+
+  w.value=''; m.value=''; e.value=''; type.value='';
+}
+
+// 管理
+function showManage(){ hideAll(); manageBox.style.display='block'; }
+
+function showList(type){
+  listArea.innerHTML='';
+
+  user.filter(w=>w.type===type).forEach((w,i)=>{
+    let div=document.createElement('div');
+    div.className='manage-item';
+    div.innerHTML=w.word;
+
+    let btn=document.createElement('button');
+    btn.textContent='刪除';
+
+    btn.onclick=()=>{
+      user.splice(i,1);
+      localStorage.setItem('words',JSON.stringify(user));
+      showList(type);
+    };
+
+    div.appendChild(btn);
+    listArea.appendChild(div);
+  });
+}
+
+// 匯出匯入
+function exportData(){
+  let blob=new Blob([JSON.stringify(user)],{type:'application/json'});
+  let a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='word_backup.json';
+  a.click();
+}
+
+function importData(){ file.click(); }
+
+function handleImport(e){
+  let f=e.target.files[0];
+  let r=new FileReader();
+  r.onload=function(){
+    user=JSON.parse(r.result);
+    localStorage.setItem('words',JSON.stringify(user));
+    location.reload();
+  };
+  r.readAsText(f);
+}
+
+</script>
+
+</body>
+</html>
